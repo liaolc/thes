@@ -10,7 +10,7 @@ datasets:
     data_cfg:
       num_frames: 300
       frame_interval: 1
-    batch_size_per_gpu: 2
+    batch_size_per_gpu: 1
   sample:
     type: MinecraftDataset
     data_list: datasets/minecraft/minecraft_val.json  # Update to your data path
@@ -18,8 +18,8 @@ datasets:
     data_cfg:
       num_frames: 300
       frame_interval: 1
-    num_sample: 256
-    batch_size_per_gpu: 2
+    num_sample: 128
+    batch_size_per_gpu: 1
 models:
   model_cfg:
     transformer:
@@ -98,7 +98,7 @@ val:
     - lpips
 logger:
   print_freq: 100
-  save_checkpoint_freq: 100000
+  save_checkpoint_freq: 10000
   use_wandb: true
 decoder_multi_batch: 2
 

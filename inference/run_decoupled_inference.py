@@ -257,6 +257,7 @@ def main():
     local_target = base_per_proc + (1 if accelerator.process_index < remainder else 0)
 
     combined_results: Dict[Tuple[float, int], Dict[str, float]] = {}
+    combo_opts: Dict[Tuple[float, int], tuple] = {}  # (combo_opt, global_step) saved for post-loop eval
     base_opt_snapshot = copy.deepcopy(base_opt)
 
     for context_length in context_lengths:
@@ -294,17 +295,28 @@ def main():
             if progress_bar is not None:
                 progress_bar.close()
 
-            if accelerator.is_main_process and combo_opt['val'].get('eval_cfg'):
+            # if accelerator.is_main_process and combo_opt['val'].get('eval_cfg'):
+            #     metrics = train_pipeline.eval_performance(
+            #         combo_opt,
+            #         guidance_scale=float(guidance_scale),
+            #         global_step=global_step,
+            #     )
+            #     combined_results[(float(guidance_scale), int(context_length))] = metrics
+            combo_opts[(float(guidance_scale), int(context_length))] = (combo_opt, global_step)
+            # accelerator.wait_for_everyone()
+
+    # All sampling is done; no more NCCL ops needed.
+    # Run eval only on rank 0 — other ranks have already exited the distributed loop.
+    if accelerator.is_main_process:
+        for (gs, cl), (combo_opt, global_step) in combo_opts.items():
+            if combo_opt['val'].get('eval_cfg'):
                 metrics = train_pipeline.eval_performance(
                     combo_opt,
-                    guidance_scale=float(guidance_scale),
+                    guidance_scale=gs,
                     global_step=global_step,
                 )
-                combined_results[(float(guidance_scale), int(context_length))] = metrics
+                combined_results[(gs, cl)] = metrics
 
-            accelerator.wait_for_everyone()
-
-    if accelerator.is_main_process:
         logger.info('\n===== Aggregated Metrics =====')
         for context_length in context_lengths:
             for guidance_scale in guidance_scales:

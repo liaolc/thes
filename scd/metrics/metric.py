@@ -17,10 +17,10 @@ class VideoMetric:
             self.metric_dict['mse'] = True
 
         if 'psnr' in metric:
-            self.metric_dict['psnr'] = PeakSignalNoiseRatio(data_range=1.0, reduction='none', dim=[1, 2, 3])
+            self.metric_dict['psnr'] = PeakSignalNoiseRatio(data_range=1.0, reduction='none', dim=[1, 2, 3], sync_on_compute=False)
 
         if 'ssim' in metric:
-            self.metric_dict['ssim'] = StructuralSimilarityIndexMeasure(data_range=1.0, reduction='none').to(self.device)
+            self.metric_dict['ssim'] = StructuralSimilarityIndexMeasure(data_range=1.0, reduction='none', sync_on_compute=False).to(self.device)
 
         if 'lpips' in metric:
             self.metric_dict['lpips'] = lpips.LPIPS(net='alex', spatial=False).to(self.device)  # [0, 1]

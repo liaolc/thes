@@ -1,8 +1,8 @@
 # Project-specific
 experiments/
+datasets
 results/
-pretrained/
-datasets/
+pretrained
 tb_logger/
 wandb/
 jobs/
@@ -44,3 +44,6 @@ venv/
 *.log
 .pytest_cache/
 .mypy_cache/
+Bai*
+*.err
+*.out 
