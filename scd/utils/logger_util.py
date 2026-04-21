@@ -56,15 +56,41 @@ def copy_opt_file(opt_file, experiments_root):
         f.writelines(lines)
 
 
+SCRATCH_MODELS_ROOT = '/scratch/liaolc/scd/scd_minecraft'
+SCRATCH_VIS_ROOT = '/scratch/liaolc/scd/visualizations'
+
+
+def _setup_scratch_symlink(scratch_path, link_path):
+    """Create scratch_path and a symlink at link_path → scratch_path.
+
+    If link_path already exists as the correct symlink, does nothing.
+    If link_path is a real directory (e.g. from a legacy run), replaces it
+    with a symlink only when it is empty.
+    """
+    os.makedirs(scratch_path, exist_ok=True)
+    if osp.islink(link_path):
+        if os.readlink(link_path) != scratch_path:
+            os.remove(link_path)
+            os.symlink(scratch_path, link_path)
+    elif osp.isdir(link_path):
+        if not os.listdir(link_path):
+            os.rmdir(link_path)
+            os.symlink(scratch_path, link_path)
+        # else: non-empty real dir — leave it alone, scratch path is still used
+    else:
+        os.makedirs(osp.dirname(link_path), exist_ok=True)
+        os.symlink(scratch_path, link_path)
+
+
 def set_path_logger(accelerator, config_path, opt, is_train=True):
     opt['is_train'] = is_train
 
     if is_train:
         experiments_root = osp.join('experiments', opt['name'])
         opt['path']['experiments_root'] = experiments_root
-        opt['path']['models'] = osp.join(experiments_root, 'models')
+        opt['path']['models'] = SCRATCH_MODELS_ROOT
         opt['path']['log'] = experiments_root
-        opt['path']['visualization'] = osp.join(experiments_root, 'visualization')
+        opt['path']['visualization'] = SCRATCH_VIS_ROOT
     else:
         results_root = osp.join('results', opt['name'])
         opt['path']['results_root'] = results_root
@@ -76,6 +102,8 @@ def set_path_logger(accelerator, config_path, opt, is_train=True):
         make_exp_dirs(opt)
 
         if is_train:
+            _setup_scratch_symlink(SCRATCH_MODELS_ROOT, osp.join(experiments_root, 'models'))
+            _setup_scratch_symlink(SCRATCH_VIS_ROOT, osp.join(experiments_root, 'visualization'))
             copy_opt_file(config_path, opt['path']['experiments_root'])
             log_file = osp.join(opt['path']['log'], f"train_{opt['name']}_{get_time_str()}.log")
             set_logger(log_file)

@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --job-name=SCD_train_multinodemed
-#SBATCH --output=SCD_train_multinodemed.out
-#SBATCH --error=SCD_train_multinodemed.err
+#SBATCH --job-name=SCD_train_multinodemed3
+#SBATCH --output=SCD_train_multinodemed3.out
+#SBATCH --error=SCD_train_multinodemed3.err
 #SBATCH --nodes=2                                   # Two nodes
 #SBATCH --ntasks-per-node=1                         # One launcher task per node (accelerate handles the 4 GPUs)
 #SBATCH --cpus-per-task=32
@@ -11,7 +11,7 @@
 #SBATCH --time=48:00:00
 #SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --mail-user=liaolc@bc.edu
-#SBATCH --nodelist=g[010-018]
+#SBATCH --nodelist=g[003-019]
 
 # Resolve master node (rank 0) hostname
 MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
@@ -20,6 +20,7 @@ export NUM_GPUS=4
 export NUM_NODES=2
 export PORT=29500
 export CONFIG="options/scd_minecraft.yml"
+export RESUME_FROM="checkpoint-90000"
 
 echo "Master node: $MASTER_ADDR"
 echo "Node list:   $SLURM_JOB_NODELIST"
@@ -35,5 +36,6 @@ srun bash -c "
     NUM_NODES=$NUM_NODES \
     MASTER_ADDR=$MASTER_ADDR \
     PORT=$PORT \
+    RESUME_FROM=$RESUME_FROM \
     bash scripts/train_multinode.sh $CONFIG
 "

@@ -13,4 +13,8 @@
 #SBATCH --mail-user=liaolc@bc.edu                 # Your email
 #SBATCH --nodelist=g[010-018]
 
-NUM_GPUS=4 bash scripts/train.sh
+export NUM_GPUS=4
+export RESUME_FROM="checkpoint-10000"
+
+cd /home/liaolc/sparse-causal-diffusion
+bash scripts/train.sh

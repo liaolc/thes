@@ -18,7 +18,7 @@ datasets:
     data_cfg:
       num_frames: 300
       frame_interval: 1
-    num_sample: 128
+    num_sample: 64
     batch_size_per_gpu: 1
 models:
   model_cfg:
@@ -76,7 +76,7 @@ train:
   max_grad_norm: 1.0
   train_no_action_ratio: 0.0
 val:
-  val_freq: 100000
+  val_freq: 20000
   sample_cfg:
     context_length: 144
     unroll_length: 156
@@ -87,7 +87,7 @@ val:
     sample_size: 8
     sample_trajectory_per_video: 4
     use_kv_cache: true
-    anno_context: false
+    anno_context: true
     cfg_type: decoder
   eval_cfg:
     metrics:

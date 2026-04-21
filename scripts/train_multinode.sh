@@ -23,10 +23,11 @@ NUM_NODES="${NUM_NODES:-2}"
 MACHINE_RANK="${MACHINE_RANK:-0}"
 MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"
 PORT="${PORT:-29500}"
+RESUME_FROM="${RESUME_FROM:-checkpoint-90000}"
 
 TOTAL_PROCESSES=$(( NUM_GPUS * NUM_NODES ))
 
-echo "[node ${MACHINE_RANK}/${NUM_NODES}] master=${MASTER_ADDR}:${PORT} total_gpus=${TOTAL_PROCESSES} config=${CONFIG}"
+echo "[node ${MACHINE_RANK}/${NUM_NODES}] master=${MASTER_ADDR}:${PORT} total_gpus=${TOTAL_PROCESSES} config=${CONFIG} resume=${RESUME_FROM}"
 
 accelerate launch \
     --num_processes "$TOTAL_PROCESSES" \
@@ -35,4 +36,5 @@ accelerate launch \
     --main_process_ip "$MASTER_ADDR" \
     --main_process_port "$PORT" \
     train.py \
-    -opt "$CONFIG"
+    -opt "$CONFIG" \
+    --resume_from_checkpoint "$RESUME_FROM"

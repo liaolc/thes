@@ -599,7 +599,9 @@ class SCDTrainer:
             sample_dir = os.path.join(sample_dir, f'STEPS_{num_inference_steps}')
         logger.info(f'begin evaluate {sample_dir}')
 
-        video_metric = VideoMetric(metric=opt['val']['eval_cfg']['metrics'], device=self.accelerator.device)
+        if not hasattr(self, '_video_metric'):
+            self._video_metric = VideoMetric(metric=opt['val']['eval_cfg']['metrics'], device=self.accelerator.device)
+        video_metric = self._video_metric
 
         videos_sample, videos_gt = self.read_video_folder(sample_dir, num_trajectory=opt['val']['sample_cfg']['sample_trajectory_per_video'])
 

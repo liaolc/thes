@@ -5,6 +5,7 @@ Verified to be the same as tf version by https://github.com/universome/fvd-compa
 
 import html
 import io
+import os
 import re
 import urllib
 import urllib.request
@@ -107,13 +108,19 @@ class FrechetVideoDistance(nn.Module):
 
     def __init__(self):
         super().__init__()
+        local_path = os.path.join(os.path.dirname(__file__), '..', '..', 'pretrained', 'i3d_torchscript.pt')
+        local_path = os.path.normpath(local_path)
         detector_url = (
             'https://www.dropbox.com/s/ge9e5ujwgetktms/i3d_torchscript.pt?dl=1'
         )
         # Return raw features before the softmax layer.
         self.detector_kwargs = dict(rescale=False, resize=True, return_features=True)
-        with open_url(detector_url, verbose=False) as f:
-            self.detector = torch.jit.load(f).eval()
+        if os.path.exists(local_path):
+            with open(local_path, 'rb') as f:
+                self.detector = torch.jit.load(f).eval()
+        else:
+            with open_url(detector_url, verbose=False) as f:
+                self.detector = torch.jit.load(f).eval()
 
     @torch.no_grad()
     def extract_features_in_batches(self, videos, device):

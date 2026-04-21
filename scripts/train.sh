@@ -17,13 +17,15 @@ conda activate scd
 CONFIG="${1:-options/scd_minecraft.yml}"
 NUM_GPUS="${NUM_GPUS:-8}"
 PORT="${PORT:-29500}"
+RESUME_FROM="${RESUME_FROM:-checkpoint-10000}"
 
 echo "Training with config: $CONFIG"
-echo "Using $NUM_GPUS GPUs"
+echo "Using $NUM_GPUS GPUs, resume=${RESUME_FROM}"
 
 accelerate launch \
     --num_processes "$NUM_GPUS" \
     --num_machines 1 \
     --main_process_port "$PORT" \
     train.py \
-    -opt "$CONFIG"
+    -opt "$CONFIG" \
+    --resume_from_checkpoint "$RESUME_FROM"

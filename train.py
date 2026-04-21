@@ -9,9 +9,10 @@ import copy
 import torch
 import torch.utils.checkpoint
 import wandb
+import datetime
 from accelerate import Accelerator
 from accelerate.logging import get_logger
-from accelerate.utils import set_seed
+from accelerate.utils import InitProcessGroupKwargs, set_seed
 from omegaconf import OmegaConf
 from transformers import get_constant_schedule_with_warmup, get_cosine_schedule_with_warmup
 
@@ -62,7 +63,8 @@ def train(args):
     sanitize_ddp_env(default_port="19043")
     os.environ.setdefault("NCCL_TIMEOUT_MS", "2000000")
 
-    accelerator = Accelerator(mixed_precision=opt['mixed_precision'])
+    pg_kwargs = InitProcessGroupKwargs(timeout=datetime.timedelta(minutes=20))
+    accelerator = Accelerator(mixed_precision=opt['mixed_precision'], kwargs_handlers=[pg_kwargs])
 
     # set experiment dir
     with accelerator.main_process_first():

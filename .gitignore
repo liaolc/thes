@@ -10,6 +10,7 @@ _archive/
 tests/
 docs/
 notebooks/
+Rolling-Sink
 CLAUDE.md
 README.md.bak
 core*
