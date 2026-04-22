@@ -9,6 +9,7 @@ import argparse
 import copy
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
@@ -143,7 +144,8 @@ def main():
     base_opt = _load_config(args.opt)
 
     base_name = base_opt.get('name', Path(args.opt).stem)
-    base_opt['name'] = f'{base_name}_video_dump'
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    base_opt['name'] = f'{base_name}_video_dump_{timestamp}'
 
     base_opt.setdefault('logger', {})['use_wandb'] = False
     base_opt.setdefault('val', {}).setdefault('sample_cfg', {})
@@ -255,18 +257,31 @@ def main():
         gt_video = rearrange(gt_video, '(b n) f c h w -> b n f c h w', n=num_trajectory)
         gt_video = _align_video_pair_length(pred_video, gt_video)
 
+        _save_dir = os.path.join(
+            combo_opt['path']['visualization'],
+            f'iter_{context_length}',
+            f'CFG_{guidance_scale}'
+        )
         log_paired_video(
             sample=pred_video,
             gt=gt_video,
             context_frames=context_length,
             save_suffix=batch['index'],
-            save_dir=os.path.join(
-                combo_opt['path']['visualization'],
-                f'iter_{context_length}',
-                f'CFG_{guidance_scale}'
-            ),
+            save_dir=_save_dir,
             wandb_logger=None,
             annotate_context_frame=combo_sample_cfg.get('anno_context', False),
+            guidance_scale=guidance_scale,
+            fps=8,
+        )
+
+        log_paired_video(
+            sample=pred_video[:, :, context_length:],
+            gt=None,
+            context_frames=0,
+            save_suffix=batch['index'],
+            save_dir=os.path.join(_save_dir, 'generated_only'),
+            wandb_logger=None,
+            annotate_context_frame=False,
             guidance_scale=guidance_scale,
             fps=8,
         )

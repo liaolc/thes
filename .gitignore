@@ -9,6 +9,7 @@ jobs/
 _archive/
 tests/
 docs/
+VBench
 notebooks/
 Rolling-Sink
 CLAUDE.md

@@ -548,6 +548,16 @@ class SCDTrainer:
                 annotate_context_frame=opt['val']['sample_cfg'].get('anno_context', False),
                 guidance_scale=guidance_scale)
 
+            log_paired_video(
+                sample=pred_video[:, :, context_length:],
+                gt=None,
+                context_frames=0,
+                save_suffix=batch['index'],
+                save_dir=os.path.join(_save_dir, 'generated_only'),
+                wandb_logger=None,
+                annotate_context_frame=False,
+                guidance_scale=guidance_scale)
+
             if debug:
                 break
 
