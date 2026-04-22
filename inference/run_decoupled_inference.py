@@ -39,6 +39,17 @@ def parse_args():
                         help='CFG scales to sweep (default: from config).')
     parser.add_argument('--context-lengths', type=int, nargs='+', default=None,
                         help='Context lengths to sweep (default: from config).')
+    parser.add_argument('--rolling-sink', action='store_true', default=False,
+                        help='Enable Rolling Sink attention processor on the encoder.')
+    parser.add_argument('--no-rolling-sink', dest='rolling_sink', action='store_false')
+    parser.add_argument('--rolling-sink-max-frames', type=int, default=None,
+                        help='K: cache size in frames (default: from config).')
+    parser.add_argument('--rolling-sink-sink-frames', type=int, default=None,
+                        help='S: sink frames to pin (default: from config).')
+    parser.add_argument('--rolling-sink-block-frames', type=int, default=None,
+                        help='R: rolling block size in frames (default: from config).')
+    parser.add_argument('--name-suffix', type=str, default='',
+                        help='Appended to the run name for unique output directories.')
     return parser.parse_args()
 
 
@@ -180,7 +191,23 @@ def main():
     base_opt = _load_config(args.opt)
 
     base_name = base_opt.get('name', Path(args.opt).stem)
-    base_opt['name'] = f'{base_name}_decoupled_eval'
+    suffix = args.name_suffix or ''
+    base_opt['name'] = f'{base_name}_decoupled_eval{suffix}'
+
+    # Apply rolling sink overrides into model config
+    enc_cfg = (base_opt.get('models', {})
+               .get('model_cfg', {})
+               .get('transformer', {})
+               .get('init_cfg', {})
+               .get('config', {}))
+    if args.rolling_sink:
+        enc_cfg['rolling_sink_enabled'] = True
+    if args.rolling_sink_max_frames is not None:
+        enc_cfg['rolling_sink_max_frames'] = args.rolling_sink_max_frames
+    if args.rolling_sink_sink_frames is not None:
+        enc_cfg['rolling_sink_sink_frames'] = args.rolling_sink_sink_frames
+    if args.rolling_sink_block_frames is not None:
+        enc_cfg['rolling_sink_block_frames'] = args.rolling_sink_block_frames
 
     base_opt.setdefault('val', {}).setdefault('sample_cfg', {})
     base_opt['val']['sample_cfg']['sample_trajectory_per_video'] = 4

@@ -8,7 +8,7 @@ datasets:
     split: training
     use_latent: true
     data_cfg:
-      num_frames: 600
+      num_frames: 300
       frame_interval: 1
     batch_size_per_gpu: 1
   sample:
@@ -16,7 +16,7 @@ datasets:
     data_list: datasets/minecraft/minecraft_val.json  # Update to your data path
     split: validation
     data_cfg:
-      num_frames: 600
+      num_frames: 300
       frame_interval: 1
     num_sample: 64
     batch_size_per_gpu: 1

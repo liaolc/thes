@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --job-name=SCD_rolling_K300_f600              # Job name
-#SBATCH --output=SCD_rolling_K300_f600.out            # Standard output
-#SBATCH --error=SCD_rolling_K300_f600.err             # Standard error
+#SBATCH --job-name=SCD_rolling_K300_f300              # Job name
+#SBATCH --output=SCD_rolling_K300_f300.out            # Standard output
+#SBATCH --error=SCD_rolling_K300_f300.err             # Standard error
 #SBATCH --nodes=1                                # Number of nodes
 #SBATCH --ntasks=1                               # Number of tasks
 #SBATCH --cpus-per-task=16                       # Number of CPU cores per task
