@@ -114,9 +114,11 @@ def _patch_dataset_paths(opt: Dict) -> None:
 
 def _derive_unroll_length(opt: Dict, context_length: int) -> int:
     sample_cfg = opt.get('val', {}).get('sample_cfg', {})
+    if sample_cfg.get('unroll_length') is not None:
+        return int(sample_cfg['unroll_length'])
     total_frames = _get_nested(opt, ('datasets', 'sample', 'data_cfg', 'num_frames'))
     if total_frames is None:
-        return sample_cfg.get('unroll_length', 0)
+        return 0
     return max(0, int(total_frames) - int(context_length))
 
 

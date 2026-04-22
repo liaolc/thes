@@ -1,11 +1,11 @@
 #!/bin/bash
-#SBATCH --job-name=SCD_rolling_K300_f300              # Job name
-#SBATCH --output=SCD_rolling_K300_f300.out            # Standard output
-#SBATCH --error=SCD_rolling_K300_f300.err             # Standard error
+#SBATCH --job-name=SCD_rolling2_K300_f600              # Job name
+#SBATCH --output=SCD_rolling2_K300_f600.out            # Standard output
+#SBATCH --error=SCD_rolling2_K300_f600.err             # Standard error
 #SBATCH --nodes=1                                # Number of nodes
 #SBATCH --ntasks=1                               # Number of tasks
 #SBATCH --cpus-per-task=16                       # Number of CPU cores per task
-#SBATCH --gres=gpu:4                             # 4 GPUs
+#SBATCH --gres=gpu:2                             # 4 GPUs
 #SBATCH --mem=128G                               # Total memory
 #SBATCH --partition=short                        # Partition
 #SBATCH --time=12:00:00                          # Wall time (hh:mm:ss)
@@ -19,7 +19,7 @@ git checkout RollingSink
 
 # CHECKPOINT auto-detects the latest ema.pth from experiments/<name>/models/.
 # Override by setting: export CHECKPOINT=experiments/.../ema.pth
-export NUM_GPUS=4
+export NUM_GPUS=2
 export CONFIG="options/scd_minecraft.yml"
 
 # Optional Rolling Sink overrides (defaults: K=144, S=119, R=3)
