@@ -15,6 +15,7 @@
 source ~/miniconda3/etc/profile.d/conda.sh
 
 cd /home/liaolc/sparse-causal-diffusion
+git checkout RollingSink
 
 # CHECKPOINT auto-detects the latest ema.pth from experiments/<name>/models/.
 # Override by setting: export CHECKPOINT=experiments/.../ema.pth
