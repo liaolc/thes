@@ -106,6 +106,201 @@ class AdaLayerNormZeroSingle(nn.Module):
         return x, gate_msa
 
 
+def _build_sliding_seq_ids(start_frame, num_frames, height_tokens, width_tokens, device):
+    ids = torch.zeros(num_frames, height_tokens, width_tokens, 3, device=device)
+    ids[..., 0] = (torch.arange(num_frames, device=device) + start_frame)[:, None, None]
+    ids[..., 1] = torch.arange(height_tokens, device=device)[None, :, None]
+    ids[..., 2] = torch.arange(width_tokens, device=device)[None, None, :]
+    return ids.reshape(num_frames * height_tokens * width_tokens, 3)
+
+
+class SCDRollingSinkAttnProcessor:
+    """Rolling Sink attention processor for the SCD encoder's bounded AR KV cache.
+
+    Implements three mechanisms from the Rolling Sink paper (arXiv:2602.07775):
+      1. Attention Sink  — protect the first S frames from eviction
+      2. Sliding Indices — assign global RoPE indices to the bounded cache window
+      3. Sliding Semantics — cycle the sink content through k_original every R frames
+    """
+
+    def __init__(self, sink_frames: int, max_frames: int, block_frames: int, pos_embed: nn.Module):
+        if not hasattr(F, 'scaled_dot_product_attention'):
+            raise ImportError('SCDRollingSinkAttnProcessor requires PyTorch 2.0.')
+        self.sink_frames    = sink_frames
+        self.max_frames     = max_frames
+        self.block_frames   = block_frames
+        self.pos_embed      = pos_embed
+        self.reverse_window = max_frames - block_frames  # frames per rolling direction
+
+    def __call__(
+        self,
+        attn: Attention,
+        hidden_states: torch.FloatTensor,
+        encoder_hidden_states=None,
+        attention_mask: Optional[torch.FloatTensor] = None,
+        image_rotary_emb: Optional[torch.Tensor] = None,
+        layer_kv_cache=None,
+    ) -> torch.FloatTensor:
+        batch_size, seq_len, _ = hidden_states.shape
+
+        query = attn.to_q(hidden_states)
+        key   = attn.to_k(hidden_states)
+        value = attn.to_v(hidden_states)
+        weight_dtype = query.dtype
+        inner_dim = key.shape[-1]
+        head_dim  = inner_dim // attn.heads
+
+        query = query.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+        key   = key  .view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+        value = value.view(batch_size, -1, attn.heads, head_dim).transpose(1, 2)
+
+        if attn.norm_q is not None:
+            query = attn.norm_q(query)
+        if attn.norm_k is not None:
+            key   = attn.norm_k(key)
+
+        use_cache = (
+            not attn.training
+            and layer_kv_cache is not None
+            and layer_kv_cache.get('kv_cache') is not None
+        )
+
+        if use_cache:
+            cache         = layer_kv_cache['kv_cache']
+            fsl           = layer_kv_cache['token_per_frame']
+            is_cache_step = layer_kv_cache['is_cache_step']
+            height_tokens = layer_kv_cache['height_tokens']
+            width_tokens  = layer_kv_cache['width_tokens']
+            K_tok         = self.max_frames    * fsl
+            S_tok         = self.sink_frames   * fsl
+            R_tok         = self.block_frames  * fsl
+
+            if cache.get('key') is None:
+                # ── INITIAL FILL: cache is empty, process full context at once ────────────
+                # Reuse the 0-indexed RoPE and causal mask built by the transformer forward.
+                L_new     = seq_len
+                attn_mask = attention_mask[:, -L_new:, :] if attention_mask is not None else None
+                q_rot     = (image_rotary_emb[0][-L_new:], image_rotary_emb[1][-L_new:])
+                roped_q   = apply_rotary_emb(query, q_rot)
+                roped_k   = apply_rotary_emb(key,   image_rotary_emb)
+                out = F.scaled_dot_product_attention(
+                    roped_q, roped_k, value, attn_mask=attn_mask, dropout_p=0.0, is_causal=False)
+
+                # Allocate bounded cache and k_original, then write pre-RoPE K/V
+                actual_len = min(L_new, K_tok)
+                cache['key']        = torch.zeros(batch_size, attn.heads, K_tok, head_dim, dtype=weight_dtype, device=hidden_states.device)
+                cache['value']      = torch.zeros(batch_size, attn.heads, K_tok, head_dim, dtype=weight_dtype, device=hidden_states.device)
+                cache['k_original'] = torch.zeros(batch_size, attn.heads, K_tok, head_dim, dtype=weight_dtype, device=hidden_states.device)
+                cache['v_original'] = torch.zeros(batch_size, attn.heads, K_tok, head_dim, dtype=weight_dtype, device=hidden_states.device)
+                cache['key']  [:, :, :actual_len] = key  [:, :, -actual_len:].to(weight_dtype)
+                cache['value'][:, :, :actual_len] = value[:, :, -actual_len:].to(weight_dtype)
+                cache['k_original'][:, :, :actual_len] = cache['key']  [:, :, :actual_len]
+                cache['v_original'][:, :, :actual_len] = cache['value'][:, :, :actual_len]
+                cache['local_end']        = actual_len
+                cache['global_frame_end'] = actual_len // fsl
+
+            else:
+                # ── ROLLING SINK INFERENCE: 1 new frame per call ─────────────────────────
+                L_new            = seq_len          # = 1 * fsl in steady state
+                local_end        = cache['local_end']
+                global_frame_end = cache['global_frame_end']
+
+                # Eviction with sink protection: slide non-sink region left
+                if local_end + L_new > K_tok:
+                    num_evicted = local_end + L_new - K_tok
+                    keep_lo  = S_tok
+                    keep_len = local_end - num_evicted - S_tok
+                    if keep_len > 0:
+                        cache['key']  [:, :, keep_lo:keep_lo + keep_len] = \
+                            cache['key']  [:, :, keep_lo + num_evicted:keep_lo + num_evicted + keep_len].clone()
+                        cache['value'][:, :, keep_lo:keep_lo + keep_len] = \
+                            cache['value'][:, :, keep_lo + num_evicted:keep_lo + num_evicted + keep_len].clone()
+                    local_end -= num_evicted
+
+                # Write new pre-RoPE K/V
+                write_lo = local_end
+                write_hi = local_end + L_new
+                cache['key']  [:, :, write_lo:write_hi] = key  .to(weight_dtype)
+                cache['value'][:, :, write_lo:write_hi] = value.to(weight_dtype)
+                cache['local_end']        = write_hi
+                new_global_end            = global_frame_end + (L_new // fsl)
+                cache['global_frame_end'] = new_global_end
+
+                # Fill k_original for the first K frames (before any eviction begins)
+                if global_frame_end < self.max_frames:
+                    o_lo = global_frame_end * fsl
+                    o_hi = min(new_global_end * fsl, K_tok)
+                    cache['k_original'][:, :, o_lo:o_hi] = cache['key']  [:, :, write_lo:write_lo + (o_hi - o_lo)]
+                    cache['v_original'][:, :, o_lo:o_hi] = cache['value'][:, :, write_lo:write_lo + (o_hi - o_lo)]
+
+                # Build sliding-index RoPE for the entire bounded cache window
+                cached_frames = write_hi // fsl
+                start_frame   = new_global_end - cached_frames
+                seq_ids = _build_sliding_seq_ids(
+                    start_frame, cached_frames, height_tokens, width_tokens,
+                    device=hidden_states.device).to(hidden_states.dtype)
+                full_rot = self.pos_embed(seq_ids)   # (cos, sin) each (write_hi, D_rope)
+
+                # Single query frame sees all cached frames — no intra-query causal mask needed
+                q_rot   = (full_rot[0][-L_new:], full_rot[1][-L_new:])
+                roped_q = apply_rotary_emb(query,                                       q_rot)
+                roped_k = apply_rotary_emb(cache['key'][:, :, :write_hi], full_rot)
+                out = F.scaled_dot_product_attention(
+                    roped_q, roped_k, cache['value'][:, :, :write_hi],
+                    attn_mask=None, dropout_p=0.0, is_causal=False)
+
+                # ── Rolling Sink update (fires every block_frames new frames once cache full)
+                if (is_cache_step
+                        and new_global_end >= self.max_frames + self.block_frames
+                        and (new_global_end - self.max_frames) % self.block_frames == 0):
+                    # rs_frame: global frame index of the position being rolled (Wan's current_start_frame_RS)
+                    rs_frame      = new_global_end - 2 * self.block_frames
+                    pos_in_window = rs_frame % self.reverse_window
+                    reverse       = (rs_frame // self.reverse_window) % 2 == 1
+                    if reverse:
+                        right = self.reverse_window - pos_in_window
+                        left  = right - self.block_frames
+                    else:
+                        left  = pos_in_window
+                        right = left + self.block_frames
+
+                    re_k = cache['k_original'][:, :, left * fsl:right * fsl].clone()
+                    re_v = cache['v_original'][:, :, left * fsl:right * fsl].clone()
+
+                    if reverse:
+                        # Frame-order flip + per-frame spatial token flip (mirrors Wan lines 261-267)
+                        re_k = re_k.reshape(batch_size, attn.heads, self.block_frames, fsl, head_dim)
+                        re_k = re_k.flip(dims=[2]).flip(dims=[3])
+                        re_k = re_k.reshape(batch_size, attn.heads, R_tok, head_dim)
+                        re_v = re_v.reshape(batch_size, attn.heads, self.block_frames, fsl, head_dim)
+                        re_v = re_v.flip(dims=[2]).flip(dims=[3])
+                        re_v = re_v.reshape(batch_size, attn.heads, R_tok, head_dim)
+
+                    # Write pre-RoPE content to the insert slot (one block before the new frame)
+                    # Sliding RoPE will be re-applied on the next forward call automatically.
+                    insert_hi = cache['local_end'] - L_new      # = K_tok - fsl (one frame back)
+                    insert_lo = insert_hi - R_tok               # = K_tok - (R+1)*fsl
+                    cache['key']  [:, :, insert_lo:insert_hi] = re_k
+                    cache['value'][:, :, insert_lo:insert_hi] = re_v
+        else:
+            # ── TRAINING / NO-CACHE path ─────────────────────────────────────────────────
+            if attn.training:
+                query_rot = image_rotary_emb
+            else:
+                query_rot = (image_rotary_emb[0][-query.shape[2]:], image_rotary_emb[1][-query.shape[2]:]) \
+                    if image_rotary_emb is not None else None
+            if image_rotary_emb is not None:
+                query = apply_rotary_emb(query, query_rot)
+                key   = apply_rotary_emb(key,   image_rotary_emb)
+            out = F.scaled_dot_product_attention(
+                query, key, value, attn_mask=attention_mask, dropout_p=0.0, is_causal=False)
+
+        out = out.transpose(1, 2).reshape(batch_size, -1, attn.heads * head_dim).to(query.dtype)
+        out = attn.to_out[0](out)
+        out = attn.to_out[1](out)
+        return out, layer_kv_cache
+
+
 class SCDAttnProcessor:
 
     def __init__(self):
@@ -242,6 +437,10 @@ class SCDTransformer(ModelMixin, ConfigMixin):
         decoder_input_combine="concat",
         norm_out_unconditional=False,
         noise_strength=0.0,
+        rolling_sink_enabled: bool = False,
+        rolling_sink_max_frames: int = 144,
+        rolling_sink_sink_frames: int = 119,
+        rolling_sink_block_frames: int = 3,
     ):
         super().__init__()
         self.decouple_type = decouple_type
@@ -310,6 +509,16 @@ class SCDTransformer(ModelMixin, ConfigMixin):
             else:
                 self.decoder_input_proj = None
                 self.decoder_alignment = None
+
+        if rolling_sink_enabled and decouple_type == 'encoder':
+            proc = SCDRollingSinkAttnProcessor(
+                sink_frames=rolling_sink_sink_frames,
+                max_frames=rolling_sink_max_frames,
+                block_frames=rolling_sink_block_frames,
+                pos_embed=self.pos_embed,
+            )
+            for block in self.transformer_blocks:
+                block.attn.processor = proc
 
         self.gradient_checkpointing = False
         self.initialize_weights()
@@ -547,6 +756,9 @@ class SCDTransformer(ModelMixin, ConfigMixin):
             assert temb.shape[1] == hidden_states.shape[1], "Temporally expanded embeddings must align with hidden states"
 
 
+        height_tokens = height // self.config.patch_size
+        width_tokens  = width  // self.config.patch_size
+
         for index_block, block in enumerate(self.transformer_blocks):
 
             if context_cache['kv_cache'] is None:
@@ -555,13 +767,17 @@ class SCDTransformer(ModelMixin, ConfigMixin):
                 layer_kv_cache = {
                     'is_cache_step': context_cache['is_cache_step'],
                     'kv_cache': {},
-                    'token_per_frame': token_per_frame
+                    'token_per_frame': token_per_frame,
+                    'height_tokens': height_tokens,
+                    'width_tokens': width_tokens,
                 }
             else:
                 layer_kv_cache = {
                     'is_cache_step': context_cache['is_cache_step'],
                     'kv_cache': context_cache['kv_cache'][index_block],
-                    'token_per_frame': token_per_frame
+                    'token_per_frame': token_per_frame,
+                    'height_tokens': height_tokens,
+                    'width_tokens': width_tokens,
                 }
 
             if self.training and self.gradient_checkpointing:

@@ -540,12 +540,23 @@ class SCDTrainer:
                 context_frames=context_length,
                 save_suffix=batch['index'],
                 save_dir=_save_dir,
-                wandb_logger=wandb_logger if (batch_idx < max_wandb_videos) else None,  # log first N samples to wandb
+                wandb_logger=wandb_logger if (batch_idx < max_wandb_videos) else None,
                 wandb_cfg={
                     'namespace': 'eval_vis',
                     'step': global_step,
                 },
                 annotate_context_frame=opt['val']['sample_cfg'].get('anno_context', False),
+                guidance_scale=guidance_scale)
+
+            # Save generated-only frames (no context prefix) for reference-free eval (e.g. VBench-Long)
+            log_paired_video(
+                sample=pred_video[:, :, context_length:],
+                gt=None,
+                context_frames=0,
+                save_suffix=batch['index'],
+                save_dir=os.path.join(_save_dir, 'generated_only'),
+                wandb_logger=None,
+                annotate_context_frame=False,
                 guidance_scale=guidance_scale)
 
             if debug:

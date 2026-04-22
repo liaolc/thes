@@ -8,7 +8,7 @@ datasets:
     split: training
     use_latent: true
     data_cfg:
-      num_frames: 300
+      num_frames: 600
       frame_interval: 1
     batch_size_per_gpu: 1
   sample:
@@ -16,7 +16,7 @@ datasets:
     data_list: datasets/minecraft/minecraft_val.json  # Update to your data path
     split: validation
     data_cfg:
-      num_frames: 300
+      num_frames: 600
       frame_interval: 1
     num_sample: 64
     batch_size_per_gpu: 1
@@ -36,6 +36,10 @@ models:
           decouple_type: encoder
           norm_out_unconditional: false
           noise_strength: 0.05
+          rolling_sink_enabled: false
+          rolling_sink_max_frames: 300
+          rolling_sink_sink_frames: 249
+          rolling_sink_block_frames: 3
       decoder_cfg:
         type: SCD_M_decoder
         config:
