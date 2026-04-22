@@ -150,6 +150,15 @@ class SCDPipeline(DiffusionPipeline):
 
         frame_iter = range(current_context_length, current_context_length + unroll_length)
 
+        # Tile action tensor to cover the full generation window, then clip to exact length needed
+        if conditions is not None and 'action' in conditions:
+            total_needed = current_context_length + unroll_length + 1
+            action = conditions['action']
+            if action.shape[1] < total_needed:
+                repeats = (total_needed + action.shape[1] - 1) // action.shape[1]
+                action = action.repeat(1, repeats)
+            conditions = {**conditions, 'action': action[:, :total_needed]}
+
         # Initialize pbar after we know lengths
         if show_progress and is_main_process:
             try:
