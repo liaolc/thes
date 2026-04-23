@@ -16,6 +16,7 @@ set -euo pipefail
 
 eval "$(conda shell.bash hook)"
 conda activate scd
+git checkout native
 
 CONFIG="${1:-options/scd_minecraft.yml}"
 NUM_GPUS="${NUM_GPUS:-4}"
