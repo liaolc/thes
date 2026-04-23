@@ -12,6 +12,7 @@
 #SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --mail-user=liaolc@bc.edu
 #SBATCH --nodelist=g[003-019]
+#SBATCH --dependency=afterany:2377952
 
 # Resolve master node (rank 0) hostname
 MASTER_ADDR=$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)
@@ -20,7 +21,16 @@ export NUM_GPUS=4
 export NUM_NODES=2
 export PORT=29500
 export CONFIG="options/scd_minecraft.yml"
-export RESUME_FROM="checkpoint-90000"
+
+# Auto-detect latest checkpoint from scratch
+SCRATCH_DIR="/scratch/liaolc/scd/scd_minecraft"
+LATEST=$(ls -d "$SCRATCH_DIR"/checkpoint-* 2>/dev/null | sort -t- -k2 -n | tail -n 1)
+if [ -z "$LATEST" ]; then
+    echo "Error: no checkpoint-* found in $SCRATCH_DIR"
+    exit 1
+fi
+export RESUME_FROM="$LATEST"
+echo "Resuming from: $RESUME_FROM"
 
 echo "Master node: $MASTER_ADDR"
 echo "Node list:   $SLURM_JOB_NODELIST"
