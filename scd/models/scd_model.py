@@ -670,10 +670,12 @@ class SCDTransformer(ModelMixin, ConfigMixin):
         if timestep.dim() == 1:
             timestep = timestep.unsqueeze(-1).repeat((1, num_frames))
 
+        incremental_cache_step = False
         if self.decouple_type == "encoder" or self.decouple_type == "causal":
             if context_cache['kv_cache'] is not None:
                 if context_cache['is_cache_step'] is True:
-                    current_seq_len = hidden_states.shape[1] - context_cache['cached_seqlen']
+                    prev_cached_seqlen = context_cache['cached_seqlen']
+                    current_seq_len = hidden_states.shape[1] - prev_cached_seqlen
                     context_cache['cached_seqlen'] = hidden_states.shape[1]
 
                     if current_seq_len == 0:
@@ -683,6 +685,10 @@ class SCDTransformer(ModelMixin, ConfigMixin):
 
                     if self.config.condition_cfg is not None and self.config.condition_cfg['type'] == 'action':
                         conditions['action'] = conditions['action'][:, -(current_seq_len // token_per_frame):]
+
+                    # After the initial fill (prev_cached_seqlen > 0), new tokens attend freely
+                    # to all cached tokens — no causal mask needed, avoids O(N²) allocation.
+                    incremental_cache_step = (prev_cached_seqlen > 0)
                 else:
                     assert context_cache['cached_seqlen'] == hidden_states.shape[1]
                     raise NotImplementedError("Cache retrieval without new encoding is not supported")
@@ -691,7 +697,7 @@ class SCDTransformer(ModelMixin, ConfigMixin):
             assert context_cache['kv_cache'] is None
 
         # Generate attention mask
-        if self.decouple_type == "encoder":
+        if self.decouple_type == "encoder" and not incremental_cache_step:
             attention_mask = self._build_causal_mask(
                 input_shape=(batch_size, num_frames, num_frames * token_per_frame),
                 device=hidden_states.device,
